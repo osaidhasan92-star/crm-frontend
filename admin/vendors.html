@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Roshan Technologies — Vendors</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css"/>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+<script src="../shared/data.js"></script>
+<script src="../shared/config.js"></script>
+<style id="shared-style"></style>
+</head>
+<body>
+<div class="app" id="app">
+  <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100vh;gap:14px;background:#F8F9FC;font-family:Arial,sans-serif">
+    <style>@keyframes crm-spin { to { transform:rotate(360deg); } }</style>
+    <div style="width:36px;height:36px;border:3px solid #E5E7EB;border-top-color:#1B2A6B;border-radius:50%;animation:crm-spin 0.8s linear infinite"></div>
+    <div style="font-size:13px;color:#9CA3AF">Loading vendors...</div>
+  </div>
+</div>
+<div id="toast" class="toast"></div>
+
+<script>
+document.getElementById('shared-style').textContent = SHARED_CSS;
+const user = requireAuth('admin');
+let allVendors = [];
+let allCategories = [];
+let vendorSearchQ = '';
+let filterCategory = '';
+let filterCreatedBy = '';
+let currentPage = 1;
+const perPage = 25;
+let openFilterDropdown = null;
+
+function toggleCreatedByDropdown() { openFilterDropdown = openFilterDropdown==='createdBy'?null:'createdBy'; render(); }
+function selectCreatedByFilter(val) { filterCreatedBy = val; openFilterDropdown=null; currentPage=1; render(); }
+
+document.addEventListener('click', (e) => {
+  if (openFilterDropdown && !e.target.closest('.filter-dropdown-wrap')) {
+    openFilterDropdown = null;
+    render();
+  }
+});
+let catFilterOpen = false;
+
+function goToVendorPage(n) { currentPage = n; render(); }
+
+async function downloadVendorsTableExcel() {
+  // Mirrors exactly what render() currently filters to — "the table as shown".
+  const searchNorm = vendorSearchQ.toLowerCase().trim();
+  let filteredNow = allVendors;
+  if (searchNorm) filteredNow = filteredNow.filter(v => (v.vendor_name||'').toLowerCase().includes(searchNorm));
+  if (filterCategory) filteredNow = filteredNow.filter(v => (v.categories||[]).includes(filterCategory));
+  if (filterCreatedBy) filteredNow = filteredNow.filter(v => (v.created_by_name || 'Unknown') === filterCreatedBy);
+
+  const headerRow = ['Vendor Name','Category','Credit Terms','Status','Created By'];
+  const dataRows = filteredNow.map(v => [
+    v.vendor_name || '', (v.categories||[]).join(', '), v.credit_terms || '', v.status || 'Active', v.created_by_name || 'Unknown'
+  ]);
+
+  exportSimpleTableExcel('Vendors', headerRow, dataRows, 'vendors-table');
+}
+
+function toggleCategoryFilter() {
+  catFilterOpen = !catFilterOpen;
+  render();
+}
+
+function selectCategoryFilter(cat) {
+  filterCategory = cat;
+  currentPage = 1;
+  catFilterOpen = false;
+  render();
+}
+
+document.addEventListener('click', (e) => {
+  const wrap = document.getElementById('cat-filter-wrap');
+  if (catFilterOpen && wrap && !wrap.contains(e.target)) {
+    catFilterOpen = false;
+    render();
+  }
+});
+let editingVendorId = null;
+let selectedCategories = [];
+
+async function loadVendors() {
+  try {
+    const [vData, cData] = await Promise.all([
+      apiFetch(API.getVendors, { method:'GET' }),
+      apiFetch(API.getVendorCategories, { method:'GET' })
+    ]);
+    allVendors = vData.vendors || [];
+    allCategories = cData.categories || [];
+  } catch(e) {
+    allVendors = [];
+    allCategories = [];
+  }
+  render();
+}
+
+function onVendorSearch(inputEl) {
+  vendorSearchQ = inputEl.value;
+  currentPage = 1;
+  const cursorPos = inputEl.selectionStart;
+  render();
+  const newInput = document.getElementById('vendor-search-input');
+  if (newInput) { newInput.focus(); newInput.setSelectionRange(cursorPos, cursorPos); }
+}
+
+function categoryTagsHTML(categories, max) {
+  if (!categories || !categories.length) return '<span style="color:#9CA3AF">—</span>';
+  const shown = categories.slice(0, max || 2);
+  const extra = categories.length - shown.length;
+  let html = shown.map(c => `<span style="font-size:11px;background:#EEF0F8;color:#1B2A6B;padding:2px 9px;border-radius:999px;margin-right:4px;display:inline-block;margin-bottom:2px">${esc(c)}</span>`).join('');
+  if (extra > 0) html += `<span style="font-size:11px;color:#9CA3AF">+${extra} more</span>`;
+  return html;
+}
+
+function render() {
+  const totalCount = allVendors.length;
+  const activeCount = allVendors.filter(v => v.status === 'Active').length;
+
+  const searchNorm = vendorSearchQ.toLowerCase().trim();
+  let filtered = allVendors;
+  if (searchNorm) filtered = filtered.filter(v => (v.vendor_name||'').toLowerCase().includes(searchNorm));
+  if (filterCategory) filtered = filtered.filter(v => (v.categories||[]).includes(filterCategory));
+  if (filterCreatedBy) filtered = filtered.filter(v => (v.created_by_name || 'Unknown') === filterCreatedBy);
+  const creators = [...new Set(allVendors.map(v => v.created_by_name || 'Unknown'))].sort();
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / perPage));
+  if (currentPage > totalPages) currentPage = totalPages;
+  const pageItems = paginateItems(filtered, currentPage, perPage);
+
+  document.getElementById('app').innerHTML = renderSidebar(user, 'a-vendors') + `
+  <main class="main">
+    <div class="page-header">
+      <div><h1 class="page-title">Vendors</h1><p class="page-subtitle">Manage your supplier and vendor records</p></div>
+      <div style="display:flex;gap:10px">
+        <button title="Download this table as Excel" onclick="downloadVendorsTableExcel()" style="display:inline-flex;align-items:center;gap:7px;padding:8px 16px;border:1px solid #C8E6D5;border-radius:8px;background:#F0FAF4;color:#107C41;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit"><i class="ti ti-file-type-xls" aria-hidden="true" style="font-size:17px;color:#107C41"></i> Export Report</button>
+        <button class="btn-primary" onclick="openVendorModal()"><i class="ti ti-plus" aria-hidden="true"></i> Add Vendor</button>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:20px">
+      <div class="stat-card" style="padding:16px 20px;border-left:4px solid #1B2A6B">
+        <div class="stat-label">Total Vendors</div>
+        <div style="font-size:22px;font-weight:700;color:#111827;margin-top:2px">${totalCount}</div>
+      </div>
+      <div class="stat-card" style="padding:16px 20px;border-left:4px solid #059669">
+        <div class="stat-label">Active Vendors</div>
+        <div style="font-size:22px;font-weight:700;color:#111827;margin-top:2px">${activeCount}</div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+      <div style="position:relative;flex:1;min-width:220px">
+        <i class="ti ti-search" aria-hidden="true" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#9CA3AF;font-size:15px"></i>
+        <input type="text" id="vendor-search-input" placeholder="Search vendors by name..." value="${esc(vendorSearchQ)}" oninput="onVendorSearch(this)"
+          style="width:100%;padding:9px 12px 9px 36px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;color:#374151;outline:none;font-family:inherit;background:#fff"/>
+      </div>
+      <div style="position:relative;min-width:200px" id="cat-filter-wrap">
+        <div onclick="event.stopPropagation(); toggleCategoryFilter()" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;color:${filterCategory?'#374151':'#6B7280'};background:#fff;cursor:pointer;user-select:none">
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${filterCategory ? esc(filterCategory) : 'All categories'}</span>
+          <i class="ti ti-chevron-down" aria-hidden="true" style="font-size:14px;color:#9CA3AF;flex-shrink:0"></i>
+        </div>
+        ${catFilterOpen ? `
+        <div style="position:absolute;top:100%;left:0;right:0;margin-top:4px;background:#fff;border:1px solid #E5E7EB;border-radius:8px;max-height:240px;overflow-y:auto;z-index:20;box-shadow:0 4px 12px rgba(0,0,0,0.08)">
+          <div onclick="selectCategoryFilter('')" style="padding:8px 12px;font-size:13px;cursor:pointer;color:${!filterCategory?'#1B2A6B':'#374151'};font-weight:${!filterCategory?'600':'400'}" onmouseover="this.style.background='#F3F4F6'" onmouseout="this.style.background=''">All categories</div>
+          ${allCategories.map(c => `<div onclick="selectCategoryFilter('${esc(c)}')" style="padding:8px 12px;font-size:13px;cursor:pointer;color:${filterCategory===c?'#1B2A6B':'#374151'};font-weight:${filterCategory===c?'600':'400'}" onmouseover="this.style.background='#F3F4F6'" onmouseout="this.style.background=''">${esc(c)}</div>`).join('')}
+        </div>` : ''}
+      </div>
+      ${customSelectHTML('dd-createdby', 'All creators', creators, filterCreatedBy, openFilterDropdown==='createdBy', 'toggleCreatedByDropdown', 'selectCreatedByFilter')}
+    </div>
+
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Vendor Name</th><th>Category</th><th>Credit Terms</th><th>Status</th><th>Created By</th><th>Actions</th></tr></thead>
+        <tbody>
+          ${filtered.length===0
+            ? `<tr><td colspan="6" style="text-align:center;padding:40px;color:#9CA3AF">No vendors match this filter</td></tr>`
+            : pageItems.map(v => `
+              <tr>
+                <td class="td-company">${esc(v.vendor_name)}</td>
+                <td>${categoryTagsHTML(v.categories)}</td>
+                <td style="color:#6B7280">${esc(v.credit_terms || '—')}</td>
+                <td>${v.status === 'Active'
+                    ? '<span class="badge" style="background:#D1FAE5;color:#065F46">Active</span>'
+                    : '<span class="badge" style="background:#F3F4F6;color:#4B5563">Inactive</span>'}</td>
+                <td style="font-size:12px;color:#6B7280">${esc(v.created_by_name || '—')}</td>
+                <td style="white-space:nowrap">
+                  <div style="display:inline-flex;gap:4px;align-items:center">
+                    <button class="btn-sm" title="Edit vendor" onclick="openVendorModal(${JSON.stringify(v).replace(/"/g,'&quot;')})"><i class="ti ti-pencil" aria-hidden="true"></i></button>
+                    <button class="btn-sm" title="View vendor" onclick="openVendorDetail(${JSON.stringify(v).replace(/"/g,'&quot;')})"><i class="ti ti-eye" aria-hidden="true"></i></button>
+                    <button class="btn-sm" title="Delete vendor" style="color:#DC2626;border-color:#FCA5A5" onclick="removeVendor('${v.id}')"><i class="ti ti-trash" aria-hidden="true"></i></button>
+                  </div>
+                </td>
+              </tr>`).join('')}
+        </tbody>
+      </table>
+      ${paginationControlsHTML(filtered.length, currentPage, perPage, 'goToVendorPage')}
+    </div>
+  </main>`;
+}
+
+// ── Add/Edit Vendor modal ──────────────────────────────────
+function ensureVendorModal() {
+  if (document.getElementById('vendor-modal')) return;
+  const div = document.createElement('div');
+  div.id = 'vendor-modal';
+  div.className = 'modal-overlay';
+  div.innerHTML = `
+    <div class="modal" style="max-width:440px">
+      <div class="modal-header"><span class="modal-title" id="vm-title">Add Vendor</span><button class="modal-close" onclick="closeVendorModal()">×</button></div>
+      <div class="modal-body">
+        <div class="field-row">
+          <div><div class="field-label">Vendor Name</div><input id="vf-name" class="field-input" placeholder="e.g. Skyline Print Supplies"/></div>
+          <div><div class="field-label">Contact Person</div><input id="vf-contact" class="field-input" placeholder="Full name"/></div>
+        </div>
+        <div class="field-row">
+          <div><div class="field-label">Email</div><input id="vf-email" class="field-input" type="email" placeholder="contact@vendor.com"/></div>
+          <div><div class="field-label">Phone</div><input id="vf-phone" class="field-input" placeholder="+92 300 0000000"/></div>
+        </div>
+        <div style="border-top:1px dashed #E5E7EB;margin-top:2px;padding-top:14px">
+          <div class="field-label" style="margin-bottom:10px">Secondary Contact <span style="text-transform:none;font-weight:400;color:#B0B7C3">(optional)</span></div>
+          <div class="field-row" style="margin-bottom:12px">
+            <div><div class="field-label">Contact Person</div><input id="vf-contact2" class="field-input" placeholder="Full name"/></div>
+            <div><div class="field-label">Email</div><input id="vf-email2" class="field-input" type="email" placeholder="contact@vendor.com"/></div>
+          </div>
+          <div><div class="field-label">Phone</div><input id="vf-phone2" class="field-input" placeholder="+92 300 0000000"/></div>
+        </div>
+        <div><div class="field-label">Address</div><input id="vf-address" class="field-input" placeholder="Street, city"/></div>
+        <div>
+          <div class="field-label">Vendor Category <span style="text-transform:none;font-weight:400;color:#B0B7C3">(select any that apply)</span></div>
+          <div id="vf-category-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"></div>
+          <div style="position:relative">
+            <input id="vf-category-input" class="field-input" placeholder="Type to search categories..." autocomplete="off" oninput="filterCategorySuggestions(this.value)" onfocus="filterCategorySuggestions(this.value)"/>
+            <div id="vf-category-suggest" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #E5E7EB;border-radius:8px;margin-top:2px;max-height:180px;overflow-y:auto;z-index:20;box-shadow:0 4px 12px rgba(0,0,0,0.08)"></div>
+          </div>
+        </div>
+        <div><div class="field-label">Credit Terms</div><input id="vf-credit" class="field-input" placeholder="e.g. Net 30"/></div>
+        <div><div class="field-label">Notes</div><textarea id="vf-notes" class="field-input" placeholder="Any context or next steps..." style="min-height:60px"></textarea></div>
+        <div><div class="field-label">Status</div>
+          <select id="vf-status" class="field-input"><option>Active</option><option>Inactive</option></select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-outline" onclick="closeVendorModal()">Cancel</button>
+        <button class="btn-primary" id="vm-submit-btn" onclick="submitVendor()">Save Vendor</button>
+      </div>
+    </div>`;
+  document.body.appendChild(div);
+  div.addEventListener('click', e => { if (e.target.id === 'vendor-modal') closeVendorModal(); });
+  document.addEventListener('click', e => {
+    const box = document.getElementById('vf-category-suggest');
+    const input = document.getElementById('vf-category-input');
+    if (box && input && e.target !== input && !box.contains(e.target)) box.style.display = 'none';
+  });
+}
+
+function renderCategoryChips() {
+  const box = document.getElementById('vf-category-chips');
+  box.innerHTML = selectedCategories.map(c => `
+    <span style="font-size:12px;background:#1B2A6B;color:#fff;padding:4px 10px;border-radius:999px;display:inline-flex;align-items:center;gap:5px">
+      ${esc(c)} <i class="ti ti-x" aria-hidden="true" style="font-size:12px;cursor:pointer" onclick="removeCategoryTag('${esc(c)}')"></i>
+    </span>`).join('');
+}
+
+function filterCategorySuggestions(q) {
+  const box = document.getElementById('vf-category-suggest');
+  const norm = q.toLowerCase().trim();
+  if (!norm) { box.style.display = 'none'; box.innerHTML=''; return; }
+  const matches = allCategories.filter(c => !selectedCategories.includes(c) && c.toLowerCase().includes(norm));
+  const exactExists = allCategories.some(c => c.toLowerCase() === norm);
+
+  let html = matches.map(c => `
+    <div style="padding:8px 10px;font-size:13px;cursor:pointer;color:#374151" onmouseover="this.style.background='#F3F4F6'" onmouseout="this.style.background='#fff'" onclick="addCategoryTag('${esc(c)}')">${esc(c)}</div>`).join('');
+
+  // No exact match — offer to create it as a brand new category (goes
+  // live immediately, becomes a normal reusable option from then on).
+  if (!exactExists) {
+    html += `<div style="padding:8px 10px;font-size:13px;cursor:pointer;color:#1B2A6B;border-top:1px solid #F3F4F6" onmouseover="this.style.background='#F3F4F6'" onmouseout="this.style.background='#fff'" onclick="addCategoryTag(document.getElementById('vf-category-input').value.trim())">
+      <i class="ti ti-plus" aria-hidden="true" style="margin-right:5px;font-size:13px"></i>Add "${esc(q.trim())}" as a new category
+    </div>`;
+  }
+
+  if (!html) { box.style.display = 'none'; return; }
+  box.innerHTML = html;
+  box.style.display = 'block';
+}
+
+function addCategoryTag(cat) {
+  if (!selectedCategories.includes(cat)) selectedCategories.push(cat);
+  document.getElementById('vf-category-input').value = '';
+  document.getElementById('vf-category-suggest').style.display = 'none';
+  renderCategoryChips();
+}
+
+function removeCategoryTag(cat) {
+  selectedCategories = selectedCategories.filter(c => c !== cat);
+  renderCategoryChips();
+}
+
+function openVendorModal(vendor) {
+  ensureVendorModal();
+  editingVendorId = vendor ? vendor.id : null;
+  selectedCategories = vendor ? [...(vendor.categories || [])] : [];
+  document.getElementById('vm-title').textContent = vendor ? 'Edit Vendor' : 'Add Vendor';
+  document.getElementById('vf-name').value = vendor ? vendor.vendor_name : '';
+  document.getElementById('vf-contact').value = vendor ? (vendor.contact_person || '') : '';
+  document.getElementById('vf-email').value = vendor ? (vendor.email || '') : '';
+  document.getElementById('vf-phone').value = vendor ? (vendor.phone || '') : '';
+  document.getElementById('vf-contact2').value = vendor ? (vendor.contact2_person || '') : '';
+  document.getElementById('vf-email2').value = vendor ? (vendor.contact2_email || '') : '';
+  document.getElementById('vf-phone2').value = vendor ? (vendor.contact2_phone || '') : '';
+  document.getElementById('vf-address').value = vendor ? (vendor.address || '') : '';
+  document.getElementById('vf-credit').value = vendor ? (vendor.credit_terms || '') : '';
+  document.getElementById('vf-notes').value = vendor ? (vendor.notes || '') : '';
+  document.getElementById('vf-status').value = vendor ? vendor.status : 'Active';
+  document.getElementById('vf-category-input').value = '';
+  renderCategoryChips();
+  document.getElementById('vendor-modal').classList.add('open');
+}
+
+function closeVendorModal() {
+  const m = document.getElementById('vendor-modal');
+  if (m) m.classList.remove('open');
+}
+
+async function submitVendor() {
+  const name = document.getElementById('vf-name').value.trim();
+  if (!name) { showToast('Enter a vendor name'); return; }
+
+  const payload = {
+    vendor_name: name,
+    contact_person: document.getElementById('vf-contact').value,
+    email: document.getElementById('vf-email').value,
+    phone: document.getElementById('vf-phone').value,
+    contact2_person: document.getElementById('vf-contact2').value,
+    contact2_email: document.getElementById('vf-email2').value,
+    contact2_phone: document.getElementById('vf-phone2').value,
+    address: document.getElementById('vf-address').value,
+    credit_terms: document.getElementById('vf-credit').value,
+    notes: document.getElementById('vf-notes').value,
+    status: document.getElementById('vf-status').value,
+    categories: selectedCategories
+  };
+
+  const btn = document.getElementById('vm-submit-btn');
+  btn.textContent = 'Saving…'; btn.disabled = true;
+  try {
+    if (editingVendorId) {
+      await apiFetch(API.updateVendor(editingVendorId), { method:'PUT', body:JSON.stringify(payload) });
+    } else {
+      await apiFetch(API.saveVendor, { method:'POST', body:JSON.stringify(payload) });
+    }
+    closeVendorModal();
+    showToast('Vendor saved');
+    loadVendors();
+  } catch(e) {
+  } finally {
+    btn.textContent = 'Save Vendor'; btn.disabled = false;
+  }
+}
+
+async function removeVendor(id) {
+  try {
+    await apiFetch(API.deleteVendor(id), { method:'DELETE' });
+    showToast('Vendor deleted');
+    loadVendors();
+  } catch(e) {}
+}
+
+// ── Vendor detail (View action) ────────────────────────────
+function ensureVendorDetailModal() {
+  if (document.getElementById('vendor-detail-modal')) return;
+  const div = document.createElement('div');
+  div.id = 'vendor-detail-modal';
+  div.className = 'modal-overlay';
+  div.innerHTML = `
+    <div class="modal" style="max-width:440px">
+      <div class="modal-header"><span class="modal-title" id="vd-title">Vendor</span><button class="modal-close" onclick="closeVendorDetail()">×</button></div>
+      <div class="modal-body" id="vd-body" style="max-height:65vh;overflow-y:auto"></div>
+      <div class="modal-footer"><button class="btn-outline" onclick="closeVendorDetail()">Close</button></div>
+    </div>`;
+  document.body.appendChild(div);
+  div.addEventListener('click', e => { if (e.target.id === 'vendor-detail-modal') closeVendorDetail(); });
+}
+
+function closeVendorDetail() {
+  const m = document.getElementById('vendor-detail-modal');
+  if (m) m.classList.remove('open');
+}
+
+function openVendorDetail(v) {
+  ensureVendorDetailModal();
+  document.getElementById('vd-title').textContent = v.vendor_name;
+  const hasSecondary = v.contact2_person || v.contact2_email || v.contact2_phone;
+  document.getElementById('vd-body').innerHTML = `
+    <div style="margin-bottom:14px">${categoryTagsHTML(v.categories, 99)}</div>
+    ${detailSectionTitle('Primary Contact')}
+    ${detailRow('Contact Person', v.contact_person)}
+    ${detailRow('Email', v.email)}
+    ${detailRow('Phone', v.phone)}
+    ${hasSecondary ? detailSectionTitle('Secondary Contact') : ''}
+    ${detailRow('Contact Person', v.contact2_person)}
+    ${detailRow('Email', v.contact2_email)}
+    ${detailRow('Phone', v.contact2_phone)}
+    ${detailSectionTitle('Details')}
+    ${detailRow('Address', v.address)}
+    ${detailRow('Credit Terms', v.credit_terms)}
+    ${detailRow('Status', v.status)}
+    ${v.notes ? `<div style="font-size:13px;color:#374151;line-height:1.6;padding:6px 0">${esc(v.notes)}</div>` : ''}
+  `;
+  document.getElementById('vendor-detail-modal').classList.add('open');
+}
+
+loadVendors();
+</script>
+</body>
+</html>
