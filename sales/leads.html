@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Roshan CRM — My Leads</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css"/>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+<script src="../shared/data.js"></script>
+<script src="../shared/config.js"></script>
+<style id="shared-style"></style>
+<style>
+  .prob-wrap { display:inline-flex; align-items:center; }
+  .prob-ring { position:relative; width:36px; height:36px; flex-shrink:0; }
+  .prob-ring svg { transform:rotate(-90deg); }
+  .prob-num { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; }
+  .prob-tooltip { position:relative; cursor:default; }
+  .prob-tooltip .tip-box { display:none; position:absolute; bottom:calc(100%+6px); left:50%; transform:translateX(-50%); background:#1F2937; color:#fff; font-size:11px; white-space:nowrap; padding:6px 10px; border-radius:7px; z-index:20; line-height:1.5; }
+  .prob-tooltip:hover .tip-box { display:block; }
+  .notes-cell { font-size:11px; color:#6B7280; max-width:180px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-style:italic; }
+  .status-active-lead   { background:#D1FAE5; color:#065F46; }
+  .status-inactive-lead { background:#FEE2E2; color:#991B1B; }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100vh;gap:14px;background:#F8F9FC;font-family:Arial,sans-serif">
+    <style>@keyframes crm-spin { to { transform:rotate(360deg); } }</style>
+    <div style="width:36px;height:36px;border:3px solid #E5E7EB;border-top-color:#1B2A6B;border-radius:50%;animation:crm-spin 0.8s linear infinite"></div>
+    <div style="font-size:13px;color:#9CA3AF">Loading leads...</div>
+  </div>
+</div>
+
+<!-- Add / Edit Lead Modal -->
+<div id="modal-lead" class="modal-overlay">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-lead-title">Add New Lead</span>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-row">
+        <div style="position:relative">
+          <div class="field-label">Company Name</div>
+          <input id="f-company" class="field-input" placeholder="e.g. TechNova Corp" autocomplete="off"/>
+          <input type="hidden" id="f-company-id"/>
+          <div id="f-company-locked-hint" style="display:none;font-size:11px;color:#9CA3AF;margin-top:4px">Linked to an existing company — contact an admin to change it.</div>
+          <div id="company-suggest-box" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #E5E7EB;border-radius:8px;margin-top:2px;max-height:200px;overflow-y:auto;z-index:20;box-shadow:0 4px 12px rgba(0,0,0,0.08)"></div>
+        </div>
+        <div><div class="field-label">Contact Person</div><input id="f-contact" class="field-input" placeholder="Full name"/></div>
+      </div>
+      <div class="field-row">
+        <div><div class="field-label">Email</div><input id="f-email" class="field-input" type="email" placeholder="contact@company.com"/></div>
+        <div><div class="field-label">Phone</div><input id="f-phone" class="field-input" placeholder="+92 300 0000000"/></div>
+      </div>
+      <div style="border-top:1px dashed #E5E7EB;margin-top:2px;padding-top:14px">
+        <div class="field-label" style="margin-bottom:10px">Secondary Contact <span style="text-transform:none;font-weight:400;color:#B0B7C3">(optional)</span></div>
+        <div class="field-row" style="margin-bottom:12px">
+          <div><div class="field-label">Contact Person</div><input id="f-contact2" class="field-input" placeholder="Full name"/></div>
+          <div><div class="field-label">Email</div><input id="f-email2" class="field-input" type="email" placeholder="contact@company.com"/></div>
+        </div>
+        <div><div class="field-label">Phone</div><input id="f-phone2" class="field-input" placeholder="+92 300 0000000"/></div>
+      </div>
+      <div class="field-row">
+        <div><div class="field-label">Address</div><input id="f-address" class="field-input" placeholder="Street, city"/></div>
+        <div><div class="field-label">Location Link</div><input id="f-location" class="field-input" type="url" placeholder="Google Maps link"/></div>
+      </div>
+      <div class="field-row">
+        <div><div class="field-label">Product / Service</div><input id="f-product" class="field-input" placeholder="e.g. Cloud Migration"/></div>
+        <div><div class="field-label">Deal Value</div>
+          <div style="display:flex;gap:8px">
+            <select id="f-currency" class="field-input" style="max-width:88px;flex-shrink:0">
+              <option value="USD">$ USD</option>
+              <option value="PKR">₨ PKR</option>
+            </select>
+            <input id="f-value" class="field-input" type="number" placeholder="25000"/>
+          </div>
+        </div>
+      </div>
+      <div class="field-row">
+        <div><div class="field-label">Stage</div>
+          <select id="f-stage" class="field-input">
+            <option>New</option><option>Contact Made</option><option>Demo</option>
+            <option>Proposal Sent</option><option>Closed Won</option><option>Closed Lost</option>
+          </select>
+        </div>
+        <div><div class="field-label">Priority</div>
+          <select id="f-priority" class="field-input">
+            <option>High</option><option>Medium</option><option>Low</option>
+          </select>
+        </div>
+      </div>
+      <div class="field-row">
+        <div><div class="field-label">Lead Status</div>
+          <select id="f-status" class="field-input">
+            <option value="Active">Active</option>
+            <option value="Inactive">Inactive</option>
+          </select>
+        </div>
+        <div></div>
+      </div>
+      <div><div class="field-label">Notes</div>
+        <textarea id="f-notes" class="field-input" rows="3" placeholder="Any context, next steps, or key details..." style="resize:none"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-outline" onclick="closeModal()">Cancel</button>
+      <button id="save-btn" class="btn-primary" onclick="saveLead()">Save Lead</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+<script>
+document.getElementById('shared-style').textContent = SHARED_CSS;
+const user = requireAuth('sales');
+let leads = [];
+let filterQ = '', filterStage = '', filterStatus = '';
+let editingId = null;
+
+const STAGE_SCORE    = { 'New':10,'Contact Made':25,'Demo':50,'Proposal Sent':72,'Closed Won':100,'Closed Lost':0 };
+const PRIORITY_BOOST = { 'High':12,'Medium':5,'Low':0 };
+const STAGE_COLOR    = { 'New':'#4A5A9A','Contact Made':'#FBBF24','Demo':'#60A5FA','Proposal Sent':'#F472B6','Closed Won':'#34D399','Closed Lost':'#EF4444' };
+
+function winProb(l) {
+  if (l.stage==='Closed Won') return 100;
+  if (l.stage==='Closed Lost') return 0;
+  return Math.min((STAGE_SCORE[l.stage]||10)+(PRIORITY_BOOST[l.priority]||0),99);
+}
+function probColor(p) {
+  if (p>=70) return {stroke:'#059669',text:'#059669'};
+  if (p>=40) return {stroke:'#F59E0B',text:'#D97706'};
+  return {stroke:'#EF4444',text:'#DC2626'};
+}
+function probRingHTML(l) {
+  const p=winProb(l); const c=probColor(p); const circ=94.25;
+  return `<div class="prob-tooltip">
+    <div class="prob-wrap"><div class="prob-ring">
+      <svg width="36" height="36" viewBox="0 0 36 36">
+        <circle fill="none" stroke="#E5E7EB" stroke-width="3.5" cx="18" cy="18" r="15"/>
+        <circle fill="none" stroke="${c.stroke}" stroke-width="3.5" stroke-linecap="round"
+          cx="18" cy="18" r="15" stroke-dasharray="${circ}" stroke-dashoffset="${circ-(p/100)*circ}"/>
+      </svg>
+      <div class="prob-num" style="color:${c.text}">${p}%</div>
+    </div></div>
+    <div class="tip-box">Stage: ${l.stage}<br>Priority: ${l.priority||'Medium'}</div>
+  </div>`;
+}
+
+async function loadLeads() {
+  try {
+    const data = await apiFetch(API.getLeads, { method:'GET' });
+    if (data && Array.isArray(data.leads)) leads = data.leads;
+    else if (Array.isArray(data)) leads = data;
+    else leads = [];
+  } catch(e) { leads = []; }
+  render();
+}
+
+let dateFilter = createDateFilterState();
+let openFilterDropdown = null;
+
+function toggleStageDropdown() { openFilterDropdown = openFilterDropdown==='stage'?null:'stage'; render(); }
+function toggleStatusDropdown() { openFilterDropdown = openFilterDropdown==='status'?null:'status'; render(); }
+function selectStageFilter(val) { filterStage = val; openFilterDropdown=null; currentPage=1; render(); }
+function selectStatusFilter(val) { filterStatus = val; openFilterDropdown=null; currentPage=1; render(); }
+
+document.addEventListener('click', (e) => {
+  if (openFilterDropdown && !e.target.closest('.filter-dropdown-wrap')) {
+    openFilterDropdown = null;
+    render();
+  }
+});
+let currentPage = 1;
+const perPage = 25;
+function onDateFilterChange(preset) { dateFilter.preset = preset; if (preset !== 'custom') { dateFilter.from=''; dateFilter.to=''; } currentPage=1; render(); }
+function onDateFilterChangeCustom(field, val) { dateFilter[field] = val; currentPage=1; render(); }
+
+function onLeadSearch(inputEl) {
+  filterQ = inputEl.value;
+  currentPage = 1;
+  const cursorPos = inputEl.selectionStart;
+  render();
+  const newInput = document.getElementById('lead-search-input');
+  if (newInput) {
+    newInput.focus();
+    newInput.setSelectionRange(cursorPos, cursorPos);
+  }
+}
+
+function render() {
+  const scoped = applyDateFilter(leads, dateFilter);
+  let filtered = scoped.filter(l => {
+    const q = filterQ.toLowerCase();
+    const mQ = !q || (l.company||'').toLowerCase().includes(q) || (l.contact||'').toLowerCase().includes(q);
+    const mS = !filterStage || l.stage === filterStage;
+    const mSt = !filterStatus || (l.lead_status || '') === filterStatus || (!l.lead_status && filterStatus === 'Active');
+    return mQ && mS && mSt;
+  });
+  const totalVal  = scoped.filter(l=>l.stage!=='Closed Lost').reduce((s,l)=>s+(Number(l.value)||0),0);
+  const closedVal = scoped.filter(l=>l.stage==='Closed Won').reduce((s,l)=>s+(Number(l.value)||0),0);
+  const currencyTotals = sumByCurrency(filtered);
+  const closedTotals   = sumByCurrency(filtered.filter(l=>l.stage==='Closed Won'));
+  const avgProb   = scoped.length ? Math.round(scoped.reduce((s,l)=>s+winProb(l),0)/scoped.length) : 0;
+  const hotLeads  = scoped.filter(l=>winProb(l)>=70 && l.stage!=='Closed Won').length;
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / perPage));
+  if (currentPage > totalPages) currentPage = totalPages;
+  const pageItems = paginateItems(filtered, currentPage, perPage);
+
+  document.getElementById('app').innerHTML = renderSidebar(user,'s-leads') + `
+  <main class="main">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">My Leads</h1>
+        <p class="page-subtitle">${scoped.length} leads</p>
+      </div>
+      <div style="display:flex;gap:10px">
+        <button title="Download my pipeline report as Excel" onclick="downloadStageCountsExcel()" style="display:inline-flex;align-items:center;gap:7px;padding:8px 16px;border:1px solid #C8E6D5;border-radius:8px;background:#F0FAF4;color:#107C41;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit"><i class="ti ti-file-type-xls" aria-hidden="true" style="font-size:17px;color:#107C41"></i> Export Report</button>
+        <button class="btn-primary" onclick="openAddModal()">
+          <i class="ti ti-plus" aria-hidden="true"></i> Add Lead
+        </button>
+      </div>
+    </div>
+
+    <div style="margin-bottom:14px">${dateFilterHTML(dateFilter,'onDateFilterChange')}</div>
+
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px">
+      ${customSelectHTML('dd-stage', 'All stages', ['New','Contact Made','Demo','Proposal Sent','Closed Won','Closed Lost'], filterStage, openFilterDropdown==='stage', 'toggleStageDropdown', 'selectStageFilter')}
+      ${customSelectHTML('dd-status', 'All status', ['Active','Inactive'], filterStatus, openFilterDropdown==='status', 'toggleStatusDropdown', 'selectStatusFilter')}
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:14px">
+      <div class="stat-card" style="padding:16px 20px;border-left:4px solid #1B2A6B">
+        <div class="stat-label">Pipeline — USD</div>
+        <div style="font-size:22px;font-weight:700;color:#111827;margin-top:2px">${fmtMoney(currencyTotals.USD,'USD')}</div>
+      </div>
+      <div class="stat-card" style="padding:16px 20px;border-left:4px solid #059669">
+        <div class="stat-label">Pipeline — PKR</div>
+        <div style="font-size:22px;font-weight:700;color:#111827;margin-top:2px">${fmtMoney(currencyTotals.PKR,'PKR')}</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px">
+      <div class="stat-card" style="padding:14px 18px"><div class="stat-label">Closed Won (USD)</div><div style="font-size:20px;font-weight:700;color:#059669">${fmtMoney(closedTotals.USD,'USD')}</div></div>
+      <div class="stat-card" style="padding:14px 18px"><div class="stat-label">Closed Won (PKR)</div><div style="font-size:20px;font-weight:700;color:#059669">${fmtMoney(closedTotals.PKR,'PKR')}</div></div>
+      <div class="stat-card" style="padding:14px 18px"><div class="stat-label">Avg Win Probability</div><div style="font-size:20px;font-weight:700;color:#1B2A6B">${avgProb}%</div></div>
+      <div class="stat-card" style="padding:14px 18px"><div class="stat-label">Hot Leads (≥70%)</div><div style="font-size:20px;font-weight:700;color:#D97706">${hotLeads}</div></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:24px">
+      ${['New','Contact Made','Demo','Proposal Sent','Closed Won','Closed Lost'].map(s=>{
+        const cnt=filtered.filter(l=>l.stage===s).length;
+        return `<div class="stat-card" style="padding:12px 14px"><div class="stat-label" style="font-size:10px">${s}</div><div style="font-size:20px;font-weight:700;color:#111827">${cnt}</div></div>`;
+      }).join('')}
+    </div>
+
+    <div class="table-card">
+      <div class="table-toolbar">
+        <input type="text" placeholder="Search by company or contact..." value="${filterQ}" id="lead-search-input"
+          oninput="onLeadSearch(this)"/>
+      </div>
+      <div class="table-scroll"><table>
+        <thead>
+          <tr>
+            <th>Company</th><th>Contact</th><th>Stage</th>
+            <th>Value</th><th>Priority</th><th>Status</th>
+            <th>Notes</th><th>Win %</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${pageItems.length===0
+            ? `<tr><td colspan="9" style="text-align:center;padding:40px;color:#9CA3AF">No leads found</td></tr>`
+            : pageItems.map(l => {
+              const status = l.lead_status || 'Active';
+              return `<tr>
+                <td>
+                  <div class="td-company" style="cursor:pointer;text-decoration:underline;text-decoration-color:#C5CBE8" onclick="openLeadHistory('${l.id}', '${esc((l.company||'').replace(/'/g,"\\\\'"))}')" title="View history">${esc(l.company)}</div>
+                  <div style="font-size:11px;color:#9CA3AF">${esc(l.product||'')}</div>
+                </td>
+                <td>
+                  <div style="font-size:13px;color:#374151">${esc(l.contact||'')}</div>
+                  <div style="font-size:11px;color:#9CA3AF">${esc(l.email||'')}</div>
+                  <div style="font-size:11px;color:#9CA3AF">${esc(l.phone||'')}</div>
+                </td>
+                <td><span class="badge ${stageClass(l.stage)}">${l.stage}</span></td>
+                <td style="font-weight:600;color:${l.stage==='Closed Won'?'#059669':'#111827'}">${fmtMoney(l.value||0, l.currency)}</td>
+                <td><span class="badge ${priorityClass(l.priority||'Medium')}">${l.priority||'Medium'}</span></td>
+                <td><span class="badge ${status==='Active'?'status-active-lead':'status-inactive-lead'}">${status}</span></td>
+                <td><div class="notes-cell" title="${esc(l.notes||'')}">${esc(l.notes||'—')}</div></td>
+                <td>${probRingHTML(l)}</td>
+                <td>
+                  <div style="display:flex;gap:6px;align-items:center;flex-wrap:nowrap">
+                    <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
+                      <button class="btn-sm" onclick="openEditModal(${JSON.stringify(l).replace(/"/g,'&quot;')})" title="Edit lead"
+                        style="color:#1B2A6B;border-color:#C5CBE8;background:#EEF0F8">
+                        <i class="ti ti-pencil" aria-hidden="true"></i>
+                      </button>
+                      <button class="btn-sm" onclick="viewLeadDetails('${l.id}')" title="View full details"
+                        style="color:#4B5563;border-color:#E5E7EB;background:#F9FAFB">
+                        <i class="ti ti-eye" aria-hidden="true"></i>
+                      </button>
+                    </div>
+                    <select class="btn-sm" onchange="updateStage('${l.id}',this.value)" style="width:90px;max-width:90px;flex-shrink:0;text-overflow:ellipsis">
+                      <option value="">Stage ▾</option>
+                      <option>New</option><option>Contact Made</option><option>Demo</option>
+                      <option>Proposal Sent</option><option>Closed Won</option><option>Closed Lost</option>
+                    </select>
+                  </div>
+                </td>
+              </tr>`;
+            }).join('')}
+        </tbody>
+      </table></div>
+      ${paginationControlsHTML(filtered.length, currentPage, perPage, 'goToLeadPage')}
+    </div>
+  </main>`;
+}
+
+function goToLeadPage(n) { currentPage = n; render(); }
+
+function buildFilterSummary() {
+  const parts = [];
+  parts.push('Date: ' + (dateFilter.preset === 'custom' ? `${dateFilter.from || '…'} to ${dateFilter.to || '…'}` : dateFilter.preset));
+  if (filterStage) parts.push('Stage: ' + filterStage);
+  if (filterStatus) parts.push('Status: ' + filterStatus);
+  if (filterQ) parts.push('Search: "' + filterQ + '"');
+  return parts.length ? parts.join('  |  ') : 'All Time — no filters applied';
+}
+
+function downloadStageCountsExcel() {
+  const scoped = applyDateFilter(leads, dateFilter);
+  const q = filterQ.toLowerCase();
+  const filteredNow = scoped.filter(l => {
+    const mQ = !q || (l.company||'').toLowerCase().includes(q) || (l.contact||'').toLowerCase().includes(q);
+    const mS = !filterStage || l.stage === filterStage;
+    const mSt = !filterStatus || (l.lead_status || '') === filterStatus || (!l.lead_status && filterStatus === 'Active');
+    return mQ && mS && mSt;
+  });
+
+  const stages = ['New','Contact Made','Demo','Proposal Sent','Closed Won','Closed Lost'];
+  const pivotHeader = ['Salesperson', ...stages, 'Total'];
+  const counts = stages.map(s => filteredNow.filter(l => l.stage === s).length);
+  const myRow = [user.name, ...counts, filteredNow.length];
+  const totalsRow = ['TOTAL', ...counts, filteredNow.length];
+
+  const detailHeader = ['Company','Contact','Phone','Stage','Value','Currency','Priority','Status'];
+  const detailRows = filteredNow.map(l => [
+    l.company||'', l.contact||'', l.phone||'', l.stage||'',
+    Number(l.value)||0, l.currency||'USD', l.priority||'', l.lead_status||'Active'
+  ]);
+
+  buildStyledPipelineReport({
+    title: 'My Lead Stage Report',
+    filterSummary: buildFilterSummary(),
+    pivotHeader, pivotRows: [myRow], totalsRow,
+    detailHeader, detailRows, detailValueColIndex: 4,
+    filenamePrefix: 'my-lead-stage-report'
+  });
+}
+
+function openAddModal() {
+  editingId = null;
+  document.getElementById('modal-lead-title').textContent = 'Add New Lead';
+  document.getElementById('save-btn').textContent = 'Save Lead';
+  ['f-company','f-contact','f-email','f-phone','f-contact2','f-email2','f-phone2','f-address','f-location','f-product','f-value','f-notes'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('f-company-id').value = '';
+  setCompanyFieldLocked(false);
+  document.getElementById('f-currency').value = 'USD';
+  document.getElementById('f-stage').value    = 'New';
+  document.getElementById('f-priority').value = 'High';
+  document.getElementById('f-status').value   = 'Active';
+  document.getElementById('modal-lead').classList.add('open');
+}
+
+// Once a lead is linked to a Companies record, the name field is locked —
+// free-typing it after the fact risks silently drifting the lead onto a
+// different (or accidental duplicate) company without anyone noticing.
+function setCompanyFieldLocked(locked) {
+  const input = document.getElementById('f-company');
+  const hint  = document.getElementById('f-company-locked-hint');
+  input.disabled = locked;
+  input.style.background = locked ? '#F3F4F6' : '';
+  input.style.color = locked ? '#6B7280' : '';
+  input.style.cursor = locked ? 'not-allowed' : '';
+  if (hint) hint.style.display = locked ? 'block' : 'none';
+}
+
+let editingOriginal = null;
+function openEditModal(l) {
+  editingId = l.id;
+  editingOriginal = { ...l };
+  document.getElementById('modal-lead-title').textContent = 'Edit Lead';
+  document.getElementById('save-btn').textContent = 'Update Lead';
+  document.getElementById('f-company').value  = l.company  || '';
+  document.getElementById('f-company-id').value = l.company_id || '';
+  setCompanyFieldLocked(!!l.company_id);
+  document.getElementById('f-contact').value  = l.contact  || '';
+  document.getElementById('f-email').value    = l.email    || '';
+  document.getElementById('f-phone').value    = l.phone    || '';
+  document.getElementById('f-contact2').value = l.contact2_name  || '';
+  document.getElementById('f-email2').value   = l.contact2_email || '';
+  document.getElementById('f-phone2').value   = l.contact2_phone || '';
+  document.getElementById('f-address').value  = l.address       || '';
+  document.getElementById('f-location').value = l.location_link || '';
+  document.getElementById('f-product').value  = l.product  || '';
+  document.getElementById('f-value').value    = l.value    || '';
+  document.getElementById('f-currency').value = l.currency || 'USD';
+  document.getElementById('f-stage').value    = l.stage    || 'New';
+  document.getElementById('f-priority').value = l.priority || 'High';
+  document.getElementById('f-status').value   = l.lead_status || 'Active';
+  document.getElementById('f-notes').value    = l.notes    || '';
+  document.getElementById('modal-lead').classList.add('open');
+}
+
+function closeModal() { document.getElementById('modal-lead').classList.remove('open'); }
+
+function buildLeadDiff(before, after) {
+  const labels = {
+    company: 'Company', contact: 'Contact', email: 'Email', phone: 'Phone',
+    product: 'Product', value: 'Value', stage: 'Stage', priority: 'Priority',
+    lead_status: 'Status', notes: 'Notes'
+  };
+  const changes = [];
+  Object.keys(labels).forEach(key => {
+    const oldVal = before ? (before[key] ?? '') : '';
+    const newVal = after[key] ?? '';
+    const oldStr = key === 'value' ? fmtMoney(oldVal||0) : String(oldVal || '—');
+    const newStr = key === 'value' ? fmtMoney(newVal||0) : String(newVal || '—');
+    if (oldStr !== newStr) {
+      changes.push(`${labels[key]}: "${oldStr}" → "${newStr}"`);
+    }
+  });
+  const company = after.company || (before ? before.company : '');
+  if (changes.length === 0) return `Opened "${company}" — no changes made`;
+  return `Updated "${company}" — ` + changes.join(', ');
+}
+
+async function saveLead() {
+  const company = document.getElementById('f-company').value.trim();
+  if (!company) { showToast('Company name is required'); return; }
+  const btn = document.getElementById('save-btn');
+  btn.textContent = editingId ? 'Updating...' : 'Saving...'; btn.disabled = true;
+
+  const payload = {
+    company, company_id: document.getElementById('f-company-id').value || null,
+    contact: document.getElementById('f-contact').value,
+    email: document.getElementById('f-email').value,
+    phone: document.getElementById('f-phone').value,
+    contact2_name: document.getElementById('f-contact2').value,
+    contact2_email: document.getElementById('f-email2').value,
+    contact2_phone: document.getElementById('f-phone2').value,
+    address: document.getElementById('f-address').value,
+    location_link: document.getElementById('f-location').value,
+    product: document.getElementById('f-product').value,
+    value: parseInt(document.getElementById('f-value').value)||0,
+    currency: document.getElementById('f-currency').value,
+    stage: document.getElementById('f-stage').value,
+    priority: document.getElementById('f-priority').value,
+    lead_status: document.getElementById('f-status').value,
+    notes: document.getElementById('f-notes').value
+  };
+
+  try {
+    if (editingId) {
+      await apiFetch(API.updateLead(editingId), { method:'PUT', body:JSON.stringify(payload) });
+      showToast('Lead updated!');
+      logActivity('Lead Updated', buildLeadDiff(editingOriginal, payload), null, editingId);
+    } else {
+      const saveResult = await apiFetch(API.saveLead, { method:'POST', body:JSON.stringify(payload) });
+      showToast('Lead added!');
+      const newId = saveResult?.lead?.id || saveResult?.id || null;
+      // "Lead Added" is now logged directly by the backend inside save_lead() —
+      // this guarantees it always fires, with no dependency on the browser finishing
+      // a background request before the page re-renders.
+    }
+    closeModal();
+    loadLeads();
+  } catch(e) {
+  } finally { btn.textContent = editingId ? 'Update Lead' : 'Save Lead'; btn.disabled = false; }
+}
+
+function viewLeadDetails(id) {
+  const lead = leads.find(l => String(l.id) === String(id));
+  if (lead) openLeadDetails(lead);
+}
+
+async function updateStage(id, newStage) {
+  if (!newStage) return;
+  try {
+    await apiFetch(API.updateStage(id), { method:'POST', body:JSON.stringify({ stage:newStage }) });
+    const lead = leads.find(l => l.id == id);
+    const oldStage = lead ? lead.stage : '';
+    if (lead) lead.stage = newStage;
+    showToast(`Stage updated to ${newStage}`);
+    logActivity('Stage Changed', `"${lead ? lead.company : id}" — Stage: "${oldStage}" → "${newStage}"`, null, id);
+    render();
+  } catch(e) {
+    // apiFetch already shows a toast with the real error — re-render so the
+    // dropdown snaps back to the actual (unchanged) stage instead of showing
+    // the attempted value the browser selected but the server rejected.
+    render();
+  }
+}
+
+document.addEventListener('click', e => { if (e.target.id==='modal-lead') closeModal(); });
+setupCompanyAutocomplete('f-company', 'f-company-id', 'company-suggest-box');
+loadLeads().then(() => {
+  const params = new URLSearchParams(window.location.search);
+  const editId = params.get('edit');
+  if (editId) {
+    const lead = leads.find(l => String(l.id) === String(editId));
+    if (lead) openEditModal(lead);
+  }
+});
+</script>
+</body>
+</html>

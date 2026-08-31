@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Roshan Technologies — Companies</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css"/>
+<script src="../shared/data.js"></script>
+<script src="../shared/config.js"></script>
+<style id="shared-style"></style>
+</head>
+<body>
+<div class="app" id="app">
+  <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100vh;gap:14px;background:#F8F9FC;font-family:Arial,sans-serif">
+    <style>@keyframes crm-spin { to { transform:rotate(360deg); } }</style>
+    <div style="width:36px;height:36px;border:3px solid #E5E7EB;border-top-color:#1B2A6B;border-radius:50%;animation:crm-spin 0.8s linear infinite"></div>
+    <div style="font-size:13px;color:#9CA3AF">Loading companies...</div>
+  </div>
+</div>
+<div id="toast" class="toast"></div>
+
+<script>
+document.getElementById('shared-style').textContent = SHARED_CSS;
+const user = requireAuth('manager');
+let companySearchQ = '';
+let filterRep = '';
+let currentPage = 1;
+const perPage = 25;
+function onCompanySearch(inputEl) {
+  companySearchQ = inputEl.value;
+  currentPage = 1;
+  const cursorPos = inputEl.selectionStart;
+  render();
+  const newInput = document.getElementById('company-search-input');
+  if (newInput) {
+    newInput.focus();
+    newInput.setSelectionRange(cursorPos, cursorPos);
+  }
+}
+
+let allCompanies = [];
+
+async function loadCompanies() {
+  try {
+    const data = await apiFetch(API.getCompanies, { method:'GET' });
+    allCompanies = data.companies || [];
+  } catch(e) {
+    allCompanies = [];
+  }
+  render();
+}
+
+function render() {
+  const searchNorm = companySearchQ.toLowerCase().trim();
+  let companies = searchNorm
+    ? allCompanies.filter(c => (c.name||'').toLowerCase().includes(searchNorm))
+    : allCompanies;
+  if (filterRep) companies = companies.filter(c => (c.rep_names||[]).includes(filterRep));
+
+  const totalPages = Math.max(1, Math.ceil(companies.length / perPage));
+  if (currentPage > totalPages) currentPage = totalPages;
+  const pageItems = paginateItems(companies, currentPage, perPage);
+  const allReps = [...new Set(allCompanies.flatMap(c => c.rep_names || []))].sort();
+
+  const totalUSD = allCompanies.reduce((s,c)=>s+(Number(c.pipeline_usd)||0),0);
+  const totalPKR = allCompanies.reduce((s,c)=>s+(Number(c.pipeline_pkr)||0),0);
+
+  document.getElementById('app').innerHTML = renderSidebar(user,'m-companies') + `
+  <main class="main">
+    <div class="page-header">
+      <div><h1 class="page-title">Companies</h1><p class="page-subtitle">${companies.length} of ${allCompanies.length} companies · all reps, company-wide</p></div>
+      <div style="display:flex;gap:10px"><button class="btn-primary" onclick="openAddCompany()"><i class="ti ti-plus" aria-hidden="true"></i> Add company</button><button class="btn-outline" onclick="loadCompanies()"><i class="ti ti-refresh" aria-hidden="true"></i> Refresh</button></div>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+      <div style="position:relative;flex:1;min-width:220px;max-width:360px">
+        <i class="ti ti-search" aria-hidden="true" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#9CA3AF;font-size:15px"></i>
+        <input type="text" placeholder="Search companies by name..." value="${companySearchQ}" id="company-search-input" oninput="onCompanySearch(this)"
+          style="width:100%;padding:9px 12px 9px 36px;border:1px solid #E5E7EB;border-radius:8px;font-size:13px;color:#374151;outline:none;font-family:inherit;background:#fff;transition:border-color 0.15s"
+          onfocus="this.style.borderColor='#1B2A6B'" onblur="this.style.borderColor='#E5E7EB'"/>
+      </div>
+      <select onchange="filterRep=this.value;currentPage=1;render()" style="border:1px solid #E5E7EB;border-radius:8px;padding:9px 12px;font-size:13px;color:#374151;outline:none;font-family:inherit;background:#fff;cursor:pointer;min-width:180px">
+        <option value="">All representatives</option>
+        ${allReps.map(r => `<option value="${esc(r)}" ${filterRep===r?'selected':''}>${esc(r)}</option>`).join('')}
+      </select>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:20px">
+      <div class="stat-card" style="padding:16px 20px;border-left:4px solid #1B2A6B">
+        <div class="stat-label">Total Pipeline — USD</div>
+        <div style="font-size:22px;font-weight:700;color:#111827;margin-top:2px">${fmtMoney(totalUSD,'USD')}</div>
+      </div>
+      <div class="stat-card" style="padding:16px 20px;border-left:4px solid #059669">
+        <div class="stat-label">Total Pipeline — PKR</div>
+        <div style="font-size:22px;font-weight:700;color:#111827;margin-top:2px">${fmtMoney(totalPKR,'PKR')}</div>
+      </div>
+    </div>
+
+    <p style="font-size:12px;color:#9CA3AF;margin:-8px 0 12px">Click a company to see full detail on your own team's leads — other reps' leads show as a count only.</p>
+
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Company</th><th>Leads</th><th>Reps</th><th>Quotes</th><th>Pipeline (USD)</th><th>Pipeline (PKR)</th><th>Status</th></tr></thead>
+        <tbody>
+          ${pageItems.length===0
+            ? `<tr><td colspan="7" style="text-align:center;padding:40px;color:#9CA3AF">No companies yet</td></tr>`
+            : pageItems.map(c => {
+                const statusBadge = c.closed_count > 0
+                  ? `<span class="badge" style="background:#D1FAE5;color:#065F46">${c.closed_count} closed</span>`
+                  : `<span class="badge" style="background:#FEF3C7;color:#92400E">In progress</span>`;
+                return `<tr style="cursor:pointer" onclick="openCompanyDetail('${c.id}')" title="View company details">
+                  <td class="td-company">${esc(c.name)}</td>
+                  <td style="color:#6B7280">${c.lead_count}</td>
+                  <td style="color:#374151;font-size:13px">${formatRepNames(c.rep_names)}</td>
+                  <td style="color:#6B7280">${c.quotes_count > 0 ? c.quotes_count : '<span style="color:#9CA3AF">—</span>'}</td>
+                  <td>${c.pipeline_usd > 0 ? fmtMoney(c.pipeline_usd,'USD') : '<span style="color:#9CA3AF">—</span>'}</td>
+                  <td>${c.pipeline_pkr > 0 ? fmtMoney(c.pipeline_pkr,'PKR') : '<span style="color:#9CA3AF">—</span>'}</td>
+                  <td>${statusBadge}</td>
+                </tr>`;
+              }).join('')}
+        </tbody>
+      </table>
+      ${paginationControlsHTML(companies.length, currentPage, perPage, 'goToCompanyPage')}
+    </div>
+  </main>`;
+}
+
+function goToCompanyPage(n) { currentPage = n; render(); }
+
+loadCompanies();
+</script>
+</body>
+</html>
